@@ -52,12 +52,14 @@ class InventoryApp:
         self.file_path = r"C:\Users\taq3\Downloads\McArt Lab Inventory.xlsx"
         self.df = None
         
-        # Email alerts (use your Gmail)
-        self.email_enabled = st.sidebar.checkbox("Enable Email Alerts", value=True)
+        # Email alerts setup in sidebar
+        st.sidebar.title("📧 Email Alerts")
+        self.email_enabled = st.sidebar.checkbox("Enable Email Alerts", value=False)
+        
         if self.email_enabled:
             self.email_recipient = st.sidebar.text_input("Recipient Email", "oropel42408@gmail.com")
             self.email_sender = st.sidebar.text_input("Sender Email", "oropel42408@gmail.com")
-            self.email_password = st.sidebar.text_input("kqkcnxyzuthozonf", type="kqkcnxyzuthozonf")
+            self.email_password = st.sidebar.text_input("App Password", type="password")
         else:
             self.email_recipient = None
             self.email_sender = None
@@ -68,95 +70,57 @@ class InventoryApp:
     def load_inventory(self):
         """Load your Excel inventory"""
         try:
-            self.df = pd.read_excel(self.file_path)
+            # For cloud deployment, we need a different approach
+            # Since the Excel file won't be on the cloud server
+            st.warning("⚠️ Note: This is the cloud version. Your Excel file must be accessible.")
+            
+            # Try to load from current directory first
+            if os.path.exists("inventory.xlsx"):
+                self.df = pd.read_excel("inventory.xlsx")
+            elif os.path.exists(self.file_path):
+                self.df = pd.read_excel(self.file_path)
+            else:
+                # Create sample data for demonstration
+                st.info("No inventory file found. Creating sample data...")
+                self.df = pd.DataFrame({
+                    'Item ID': ['SAMPLE-001', 'SAMPLE-002'],
+                    'Item name': ['Sample Pipette', 'Sample Gloves'],
+                    'Location': ['Bench A', 'Shelf B'],
+                    'QR Code': ['123456', '789012'],
+                    'FORM_ID': ['', ''],
+                    'Stock': [5, 10],
+                    'Status': ['Active', 'Active'],
+                    'Purchase Date': [datetime.now(), datetime.now()],
+                    'Purchase Website': ['VWR', 'Fisher'],
+                    'Notes': ['', '']
+                })
+            
             if 'QR Code' not in self.df.columns:
                 self.df['QR Code'] = ""
             self.df['QR Code'] = self.df['QR Code'].fillna("").astype(str)
             self.df['Stock'] = pd.to_numeric(self.df['Stock'], errors='coerce').fillna(0)
+            
+            st.success(f"✅ Loaded {len(self.df)} items from inventory")
             return True
         except Exception as e:
             st.error(f"Error loading inventory: {e}")
             return False
     
     def save_inventory(self):
-        """Save back to Excel"""
+        """Save back to Excel (only works locally)"""
         try:
             self.df.to_excel(self.file_path, index=False)
             return True
         except Exception as e:
-            st.error(f"Error saving: {e}")
+            st.warning(f"Cannot save to cloud: {e}")
             return False
     
-    def send_email_alert(self, low_items, out_of_stock):
-        """Send email alert for low stock items"""
-        if not self.email_enabled or not self.email_password:
-            return
-        
-        if len(low_items) == 0 and len(out_of_stock) == 0:
-            return
-        
-        subject = "⚠️ LAB INVENTORY ALERT - Low Stock Detected"
-        
-        body = f"""
-        <html>
-        <body>
-        <h2>⚠️ Lab Inventory Alert</h2>
-        <p><b>Time:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-        
-        <h3>🚨 OUT OF STOCK ({len(out_of_stock)} items):</h3>
-        """
-        
-        if len(out_of_stock) > 0:
-            body += "<ul>"
-            for _, item in out_of_stock.iterrows():
-                item_name = str(item['Item name']) if pd.notna(item['Item name']) else "Unknown"
-                location = str(item['Location']) if pd.notna(item['Location']) else "Unknown"
-                body += f"<li><b>{item_name}</b> - Location: {location}</li>"
-            body += "</ul>"
-        else:
-            body += "<p>None! Good job keeping stock up!</p>"
-        
-        low_with_stock = low_items[low_items['Stock'] > 0]
-        body += f"""
-        <h3>⚠️ LOW STOCK (1-2 units left):</h3>
-        """
-        
-        if len(low_with_stock) > 0:
-            body += "<ul>"
-            for _, item in low_with_stock.iterrows():
-                item_name = str(item['Item name']) if pd.notna(item['Item name']) else "Unknown"
-                stock = int(item['Stock'])
-                location = str(item['Location']) if pd.notna(item['Location']) else "Unknown"
-                body += f"<li><b>{item_name}</b> - Only {stock} left - Location: {location}</li>"
-            body += "</ul>"
-        else:
-            body += "<p>No items currently low!</p>"
-        
-        body += """
-        <hr>
-        <p><i>Sent from Lab Inventory Management System</i></p>
-        </body>
-        </html>
-        """
-        
-        try:
-            msg = MIMEMultipart()
-            msg['From'] = self.email_sender
-            msg['To'] = self.email_recipient
-            msg['Subject'] = subject
-            msg.attach(MIMEText(body, 'html'))
-            
-            server = smtplib.SMTP('smtp.gmail.com', 587)
-            server.starttls()
-            server.login(self.email_sender, self.email_password)
-            server.send_message(msg)
-            server.quit()
-            
-            st.success(f"📧 Email alert sent to {self.email_recipient}")
-            return True
-        except Exception as e:
-            st.error(f"Failed to send email: {e}")
-            return False
+    def find_item_by_barcode(self, barcode):
+        """Search for item by QR Code"""
+        match = self.df[self.df['QR Code'] == barcode]
+        if not match.empty:
+            return match.iloc[0]
+        return None
 
 # Initialize app
 app = InventoryApp()
@@ -181,7 +145,7 @@ if page == "📷 Scan Barcode":
         scan_button = st.button("🔍 Find Item", use_container_width=True)
     
     if scan_button and barcode:
-        item = app.find_item_by_barcode(barcode) if hasattr(app, 'find_item_by_barcode') else None
+        item = app.find_item_by_barcode(barcode)
         
         if item is not None:
             st.success(f"✅ Found: {item['Item name']}")
@@ -201,36 +165,25 @@ if page == "📷 Scan Barcode":
             
             col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
-                if st.button("➕ Add 1", use_container_width=True):
-                    app.update_stock(item, 1)
-                    app.save_inventory()
+                if st.button("➕ Add 1", key="add1", use_container_width=True):
+                    old_stock = item['Stock']
+                    new_stock = old_stock + 1
+                    app.df.loc[item.name, 'Stock'] = new_stock
                     st.rerun()
             with col2:
-                if st.button("➕ Add 5", use_container_width=True):
-                    app.update_stock(item, 5)
-                    app.save_inventory()
+                if st.button("➕ Add 5", key="add5", use_container_width=True):
+                    app.df.loc[item.name, 'Stock'] += 5
                     st.rerun()
             with col3:
-                if st.button("➖ Remove 1", use_container_width=True):
-                    app.update_stock(item, -1)
-                    app.save_inventory()
+                if st.button("➖ Remove 1", key="rem1", use_container_width=True):
+                    app.df.loc[item.name, 'Stock'] = max(0, app.df.loc[item.name, 'Stock'] - 1)
                     st.rerun()
             with col4:
-                if st.button("➖ Remove 5", use_container_width=True):
-                    app.update_stock(item, -5)
-                    app.save_inventory()
+                if st.button("➖ Remove 5", key="rem5", use_container_width=True):
+                    app.df.loc[item.name, 'Stock'] = max(0, app.df.loc[item.name, 'Stock'] - 5)
                     st.rerun()
         else:
             st.error("❌ Item not found!")
-            st.info("Would you like to add this barcode to an existing item or create a new one?")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Add to Existing Item"):
-                    st.session_state.show_add_to_existing = True
-            with col2:
-                if st.button("Create New Item"):
-                    st.session_state.show_create_new = True
 
 elif page == "📋 View Inventory":
     st.title("📋 Inventory Items")
@@ -275,35 +228,29 @@ elif page == "⚠️ Low Stock Alerts":
     if len(out_of_stock) > 0:
         st.markdown("### 🚨 Out of Stock")
         for _, item in out_of_stock.iterrows():
-            with st.container():
-                st.markdown(f"""
-                <div class="out-of-stock">
-                <b>{item['Item name']}</b><br>
-                Location: {item['Location']}<br>
-                Status: {item['Status']}
-                </div>
-                """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="out-of-stock">
+            <b>{item['Item name']}</b><br>
+            Location: {item['Location']}<br>
+            Status: {item['Status']}
+            </div>
+            """, unsafe_allow_html=True)
     
     if len(low_items) > 0:
         low_with_stock = low_items[low_items['Stock'] > 0]
         if len(low_with_stock) > 0:
             st.markdown("### ⚠️ Low Stock (1-2 remaining)")
             for _, item in low_with_stock.iterrows():
-                with st.container():
-                    st.markdown(f"""
-                    <div class="low-stock">
-                    <b>{item['Item name']}</b> - Only {int(item['Stock'])} left<br>
-                    Location: {item['Location']}<br>
-                    Status: {item['Status']}
-                    </div>
-                    """, unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class="low-stock">
+                <b>{item['Item name']}</b> - Only {int(item['Stock'])} left<br>
+                Location: {item['Location']}<br>
+                Status: {item['Status']}
+                </div>
+                """, unsafe_allow_html=True)
     
     if len(out_of_stock) == 0 and len(low_items) == 0:
         st.success("✅ No low stock items! Everything is well-stocked.")
-    
-    # Send email button
-    if st.button("📧 Send Alert Email Now"):
-        app.send_email_alert(low_items, out_of_stock)
 
 elif page == "📊 Reports":
     st.title("📊 Inventory Reports")
@@ -323,14 +270,13 @@ elif page == "📊 Reports":
     
     # Stock distribution chart
     st.subheader("Stock Distribution")
-    stock_bins = pd.cut(app.df['Stock'], bins=[0, 1, 2, 5, 10, float('inf')], labels=['0', '1-2', '3-5', '6-10', '10+'])
-    stock_counts = stock_bins.value_counts()
-    st.bar_chart(stock_counts)
-    
-    # Top items by vendor
-    st.subheader("Items by Vendor")
-    vendor_counts = app.df['Purchase Website'].value_counts().head(10)
-    st.dataframe(vendor_counts)
+    try:
+        stock_bins = pd.cut(app.df['Stock'], bins=[0, 1, 2, 5, 10, float('inf')], 
+                            labels=['0', '1-2', '3-5', '6-10', '10+'])
+        stock_counts = stock_bins.value_counts()
+        st.bar_chart(stock_counts)
+    except:
+        st.info("Not enough data for chart")
 
 elif page == "➕ Add New Item":
     st.title("➕ Add New Item")
@@ -343,7 +289,7 @@ elif page == "➕ Add New Item":
         vendor = st.text_input("Vendor/Supplier", placeholder="Fisher Scientific, VWR, etc.")
         status = st.selectbox("Status", ["Active", "Inactive", "Maintenance", "Broken"])
         notes = st.text_area("Notes", placeholder="Any additional information")
-        barcode = st.text_input("Barcode (scan now or enter later)")
+        barcode = st.text_input("Barcode (optional)", placeholder="Scan barcode or enter manually")
         
         submitted = st.form_submit_button("➕ Add Item", use_container_width=True)
         
@@ -367,9 +313,8 @@ elif page == "➕ Add New Item":
             }])
             
             app.df = pd.concat([app.df, new_item], ignore_index=True)
-            if app.save_inventory():
-                st.success(f"✅ Added {name} (ID: {item_id})")
-                st.balloons()
+            st.success(f"✅ Added {name} (ID: {item_id})")
+            st.balloons()
 
 elif page == "🔍 Search":
     st.title("🔍 Search Inventory")
@@ -402,7 +347,3 @@ st.sidebar.info(f"""
 Version 1.0  
 Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 """)
-
-if st.sidebar.button("💾 Save Inventory Now"):
-    if app.save_inventory():
-        st.sidebar.success("Saved!")
